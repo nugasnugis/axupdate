@@ -152,78 +152,82 @@ class UpgradeThread(QtCore.QThread):
         self._password_event = threading.Event()
         self._password_value = None
         self._stop_requested = False
+        self.proc: Optional[QtCore.QProcess] = None
+        self.need_sudo = False
 
     def run(self):
         axpm_path = shutil.which("axpm")
         apt_path = shutil.which("apt") or shutil.which("apt-get") or "apt"
 
-        # If running as root, do not prefix sudo. If not root, use sudo -S to allow sending password via stdin.
-        need_sudo = (os.geteuid() != 0)
+        self.need_sudo = (os.geteuid() != 0)
         if axpm_path:
             base_cmd = [axpm_path, "full-upgrade", "-y"]
         else:
             base_cmd = [apt_path, "full-upgrade", "-y"]
 
-        if need_sudo:
+        if self.need_sudo:
             cmd = ["sudo", "-S"] + base_cmd
         else:
             cmd = base_cmd
 
         self.status.emit("Starting upgrade command: " + " ".join(cmd))
-        try:
-            proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, universal_newlines=True)
-        except Exception as e:
-            self.output_line.emit(f"Failed to start upgrade process: {e}")
+
+        self.proc = QtCore.QProcess()
+        self.proc.setProcessChannelMode(QtCore.QProcess.ProcessChannelMode.MergedChannels)
+        self.proc.readyReadStandardOutput.connect(self._handle_output)
+        self.proc.finished.connect(self._on_finished)
+        self.proc.errorOccurred.connect(self._on_error)
+
+        program = cmd[0]
+        arguments = cmd[1:]
+        self.proc.start(program, arguments)
+
+        if not self.proc.waitForStarted(10000):
+            self.output_line.emit("[axupdate] Failed to start upgrade process.")
             self.finished_signal.emit(1)
             return
 
-        try:
-            for raw_line in proc.stdout:
-                if raw_line is None:
+        loop = QtCore.QEventLoop()
+        self.proc.finished.connect(loop.quit)
+        loop.exec()
+
+    def _handle_output(self):
+        if self.proc is None:
+            return
+
+        raw = self.proc.readAllStandardOutput().data().decode(errors="replace")
+        for line in raw.splitlines():
+            self.output_line.emit(line)
+            if self.need_sudo and re.search(r"[Pp]assword", line):
+                self.password_requested.emit()
+                if not self._password_event.wait(30000):
+                    self.output_line.emit("[axupdate] No password response received; aborting upgrade...")
+                    if self.proc is not None and self.proc.state() == QtCore.QProcess.ProcessState.Running:
+                        self.proc.kill()
                     break
-                line = raw_line.rstrip("\n")
-                self.output_line.emit(line)
-                # Detect password prompt
-                if need_sudo and re.search(r"[Pp]assword", line):
-                    self.password_requested.emit()
-                    # wait for GUI to provide password
-                    self._password_event.wait()
-                    if self._password_value is None:
-                        self.output_line.emit("[axupdate] No password provided; aborting upgrade...")
-                        try:
-                            proc.terminate()
-                        except Exception:
-                            pass
-                        break
-                    try:
-                        # send password to sudo -S via stdin
-                        proc.stdin.write(self._password_value + "\n")
-                        proc.stdin.flush()
-                    except Exception as e:
-                        self.output_line.emit(f"[axupdate] Failed to send password to process: {e}")
-                    self._password_value = None
-                    self._password_event.clear()
-                if self._stop_requested:
-                    try:
-                        proc.terminate()
-                    except Exception:
-                        pass
+                if self._password_value is None:
+                    self.output_line.emit("[axupdate] No password provided; aborting upgrade...")
+                    if self.proc is not None and self.proc.state() == QtCore.QProcess.ProcessState.Running:
+                        self.proc.kill()
                     break
-            rc = proc.wait()
-            self.finished_signal.emit(rc)
-        except Exception as e:
-            self.output_line.emit(f"Exception while running upgrade: {e}")
-            try:
-                proc.kill()
-            except Exception:
-                pass
-            self.finished_signal.emit(1)
+                try:
+                    self.proc.write((self._password_value + "\n").encode())
+                    self.proc.waitForBytesWritten(5000)
+                except Exception as e:
+                    self.output_line.emit(f"[axupdate] Failed to send password: {e}")
+                self._password_value = None
+                self._password_event.clear()
+            if self._stop_requested and self.proc is not None and self.proc.state() == QtCore.QProcess.ProcessState.Running:
+                self.proc.kill()
+                break
+
+    def _on_finished(self, exit_code: int, exit_status: QtCore.QProcess.ExitStatus):
+        self.finished_signal.emit(exit_code)
+
+    def _on_error(self, error: QtCore.QProcess.ProcessError):
+        self.output_line.emit(f"[axupdate] Process error: {error}")
 
     def send_password(self, password: Optional[str]):
-        if password is None:
-            self._password_value = None
-            self._password_event.set()
-            return
         self._password_value = password
         self._password_event.set()
 
