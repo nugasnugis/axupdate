@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=65.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "axupdate"
+version = "0.1.0"
+description = "Linux GUI update manager for Debian Testing KDE Plasma (Wayland)."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "plyer>=2.0"
+]
+
+[project.scripts]
+axupdate = "axupdate:main"
