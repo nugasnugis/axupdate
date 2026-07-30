@@ -18,8 +18,10 @@ sleep 3
 python3 axupdate.py &
 AXUPDATE_PID=$!
 trap 'kill "$AXUPDATE_PID"; kill "$WEBSOCKIFY_PID"; kill "$XVFB_PID"' EXIT
-sleep 10
 
-echo "axupdate launched and accessible through noVNC on port 5901"
-echo "Kill this script to stop the session"
+echo "axupdate launched and accessible through noVNC at:"
+echo "  http://127.0.0.1:5901/vnc.html?host=127.0.0.1&port=5901"
+echo "Use this URL in a browser once port 5901 is forwarded or exposed."
+
+echo "Press CTRL-C to stop the session."
 wait $AXUPDATE_PID

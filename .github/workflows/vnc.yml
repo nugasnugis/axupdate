@@ -6,6 +6,7 @@ on:
 jobs:
   run-vnc:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python
@@ -18,17 +19,22 @@ jobs:
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y python3-pyqt6 python3-pyqt6.qtwebengine python3-pip xvfb x11-utils x11-xserver-utils dbus-x11 novnc websockify
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-      - name: Start Xvfb and noVNC
+      - name: Run noVNC and axupdate
         run: |
-          Xvfb :99 -screen 0 1280x720x24 &
           export DISPLAY=:99
+          Xvfb :99 -screen 0 1280x720x24 &
+          XVFB_PID=$!
+          trap 'kill "$XVFB_PID"' EXIT
           sleep 3
           websockify --web=/usr/share/novnc/ 5901 localhost:5900 &
+          WEBSOCKIFY_PID=$!
+          trap 'kill "$WEBSOCKIFY_PID"; kill "$XVFB_PID"' EXIT
           sleep 3
-          echo "VNC simulation environment ready on port 5901"
-      - name: Run axupdate headless
-        run: |
-          export DISPLAY=:99
           python3 axupdate.py &
-          sleep 10
-          echo "axupdate launched"
+          AXUPDATE_PID=$!
+          echo "noVNC is ready. Open in your browser with:"
+          echo "  http://127.0.0.1:5901/vnc.html?host=127.0.0.1&port=5901"
+          echo "If this is running in Codespaces or a browser-based runner, forward port 5901 to access the session."
+          echo "Keeping the session alive for 10 minutes..."
+          sleep 600
+          kill "$AXUPDATE_PID"
