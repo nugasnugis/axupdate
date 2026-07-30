@@ -19,9 +19,19 @@ python3 axupdate.py &
 AXUPDATE_PID=$!
 trap 'kill "$AXUPDATE_PID"; kill "$WEBSOCKIFY_PID"; kill "$XVFB_PID"' EXIT
 
+python3 pinggy_tunnel.py --port 5901 > /tmp/pinggy-url.txt 2>&1 &
+PINGGY_PID=$!
+sleep 5
+PINGGY_URL=$(grep -E '^https?://' /tmp/pinggy-url.txt | tail -n 1 || true)
+
 echo "axupdate launched and accessible through noVNC at:"
 echo "  http://127.0.0.1:5901/vnc.html?host=127.0.0.1&port=5901"
-echo "Use this URL in a browser once port 5901 is forwarded or exposed."
+if [[ -n "$PINGGY_URL" ]]; then
+  echo "Pinggy tunnel URL: $PINGGY_URL"
+else
+  echo "Pinggy tunnel is starting. Check /tmp/pinggy-url.txt for the URL."
+fi
 
+echo "Use the Pinggy URL to reach the noVNC session from a browser."
 echo "Press CTRL-C to stop the session."
 wait $AXUPDATE_PID

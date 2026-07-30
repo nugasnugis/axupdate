@@ -19,7 +19,7 @@ jobs:
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y python3-pyqt6 python3-pyqt6.qtwebengine python3-pip xvfb x11-utils x11-xserver-utils dbus-x11 novnc websockify
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-      - name: Run noVNC and axupdate
+      - name: Run noVNC, axupdate, and Pinggy tunnel
         run: |
           export DISPLAY=:99
           Xvfb :99 -screen 0 1280x720x24 &
@@ -32,9 +32,18 @@ jobs:
           sleep 3
           python3 axupdate.py &
           AXUPDATE_PID=$!
-          echo "noVNC is ready. Open in your browser with:"
-          echo "  http://127.0.0.1:5901/vnc.html?host=127.0.0.1&port=5901"
-          echo "If this is running in Codespaces or a browser-based runner, forward port 5901 to access the session."
+          python3 pinggy_tunnel.py --port 5901 > /tmp/pinggy-url.txt 2>&1 &
+          PINGGY_PID=$!
+          sleep 10
+          PINGGY_URL=$(grep -E '^https?://' /tmp/pinggy-url.txt | tail -n 1 || true)
+          echo "noVNC is ready on local port 5901."
+          echo "Local fallback URL: http://127.0.0.1:5901/vnc.html?host=127.0.0.1&port=5901"
+          if [[ -n "$PINGGY_URL" ]]; then
+            echo "Pinggy URL: $PINGGY_URL"
+          else
+            echo "Pinggy tunnel is starting. Check /tmp/pinggy-url.txt for the public URL."
+          fi
           echo "Keeping the session alive for 10 minutes..."
           sleep 600
-          kill "$AXUPDATE_PID"
+          kill "$AXUPDATE_PID" || true
+          kill "$PINGGY_PID" || true
