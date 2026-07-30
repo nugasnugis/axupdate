@@ -1,0 +1,34 @@
+name: VNC Simulation
+
+on:
+  workflow_dispatch:
+
+jobs:
+  run-vnc:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install packages
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y python3-pyqt6 python3-pyqt6.qtwebengine python3-pip xvfb x11-utils x11-xserver-utils dbus-x11 novnc websockify
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Start Xvfb and noVNC
+        run: |
+          Xvfb :99 -screen 0 1280x720x24 &
+          export DISPLAY=:99
+          sleep 3
+          websockify --web=/usr/share/novnc/ 5901 localhost:5900 &
+          sleep 3
+          echo "VNC simulation environment ready on port 5901"
+      - name: Run axupdate headless
+        run: |
+          export DISPLAY=:99
+          python3 axupdate.py &
+          sleep 10
+          echo "axupdate launched"
