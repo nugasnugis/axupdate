@@ -9,6 +9,8 @@ PINGGY_PORT="${PINGGY_PORT:-$NOVNC_WEB_PORT}"
 APP_CMD="${APP_CMD:-python3 axupdate.py}"
 
 export DISPLAY="$DISPLAY_NUM"
+export QT_QPA_PLATFORM="xcb"
+export QT_XCB_GL_INTEGRATION="none"
 
 Xvfb "$DISPLAY_NUM" -screen 0 1280x720x24 &
 XVFB_PID=$!
@@ -37,6 +39,7 @@ sleep 2
 
 bash -lc "$APP_CMD" &
 APP_PID=$!
+sleep 3
 
 python3 pinggy_tunnel.py --port "$PINGGY_PORT" > /tmp/pinggy-url.txt 2>&1 &
 PINGGY_PID=$!
@@ -53,4 +56,11 @@ fi
 
 echo "The desktop session should now be reachable through noVNC."
 echo "Press Ctrl+C to stop the launcher."
-wait "$APP_PID"
+
+while kill -0 "$PINGGY_PID" 2>/dev/null; do
+  if ! kill -0 "$APP_PID" 2>/dev/null; then
+    echo "Application exited unexpectedly, but the VNC tunnel is still being kept alive."
+  fi
+  sleep 5
+done
+
