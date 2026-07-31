@@ -56,11 +56,11 @@ fi
 echo "The desktop session should now be reachable through noVNC."
 echo "Press Ctrl+C to stop the launcher."
 
+echo "Keeping the VNC/Pinggy session alive for browser access."
 while kill -0 "$PINGGY_PID" 2>/dev/null; do
-  sleep 5
+  sleep 30
   if ! kill -0 "$APP_PID" 2>/dev/null; then
-    echo "Application exited unexpectedly. VNC and Pinggy remain alive for inspection."
-    break
+    echo "Application exited unexpectedly, but the VNC/Pinggy bridge is still running."
   fi
 done
 

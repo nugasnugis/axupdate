@@ -6,7 +6,7 @@ on:
 jobs:
   run-vnc:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 60
     env:
       DISPLAY_NUM: :99
       VNC_PORT: 5901
