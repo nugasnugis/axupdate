@@ -37,9 +37,8 @@ websockify --web="$NOVNC_WEB_ROOT" "$NOVNC_WEB_PORT" localhost:"$VNC_PORT" &
 WEBSOCKIFY_PID=$!
 sleep 2
 
-bash -lc "$APP_CMD" &
+bash -lc "$APP_CMD" > /tmp/axupdate-launch.log 2>&1 &
 APP_PID=$!
-sleep 3
 
 python3 pinggy_tunnel.py --port "$PINGGY_PORT" > /tmp/pinggy-url.txt 2>&1 &
 PINGGY_PID=$!
@@ -58,9 +57,10 @@ echo "The desktop session should now be reachable through noVNC."
 echo "Press Ctrl+C to stop the launcher."
 
 while kill -0 "$PINGGY_PID" 2>/dev/null; do
-  if ! kill -0 "$APP_PID" 2>/dev/null; then
-    echo "Application exited unexpectedly, but the VNC tunnel is still being kept alive."
-  fi
   sleep 5
+  if ! kill -0 "$APP_PID" 2>/dev/null; then
+    echo "Application exited unexpectedly. VNC and Pinggy remain alive for inspection."
+    break
+  fi
 done
 

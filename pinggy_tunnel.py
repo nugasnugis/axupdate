@@ -13,7 +13,18 @@ def main() -> int:
     args = parser.parse_args()
 
     tunnel = pinggy.start_tunnel(args.port, type="http")
-    print(tunnel.url, flush=True)
+    url = None
+    for _ in range(30):
+        urls = getattr(tunnel, "urls", None) or []
+        if urls:
+            url = urls[0]
+            break
+        time.sleep(1)
+
+    if url:
+        print(url, flush=True)
+    else:
+        print("PINGGY_URL_NOT_READY", flush=True)
 
     def shutdown(signum, frame):
         try:

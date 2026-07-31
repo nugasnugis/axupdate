@@ -443,8 +443,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
 def main():
     app = QtWidgets.QApplication(sys.argv)
-    QtCore.QCoreApplication.setAttribute(QtCore.Qt.ApplicationAttribute.AA_EnableHighDpiScaling, True)
-    QtCore.QCoreApplication.setAttribute(QtCore.QCoreApplication.ApplicationAttribute.AA_UseHighDpiPixmaps, True)
+    try:
+        app.setAttribute(QtCore.Qt.ApplicationAttribute.AA_UseHighDpiPixmaps)
+    except Exception:
+        pass
     mw = MainWindow()
     mw.show()
     sys.exit(app.exec())
