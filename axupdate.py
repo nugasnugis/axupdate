@@ -38,6 +38,14 @@ class PackageInfo:
     checked: bool = True
 
 
+@dataclass
+class KernelInfo:
+    package: str
+    version: str
+    status: str
+    source: str = ""
+
+
 def run_cmd_capture(cmd: List[str], timeout: Optional[int] = None) -> str:
     """Run a command and capture stdout+stderr as text."""
     try:
@@ -66,6 +74,53 @@ def classify_security_level(pkg_name: str, origin: str, candidate_version: str) 
     if pn.startswith("linux-") or "kernel" in pn:
         return 5
     return 2
+
+
+class KernelThread(QtCore.QThread):
+    results_ready = QtCore.pyqtSignal(list)
+    status = QtCore.pyqtSignal(str)
+
+    def run(self):
+        self.status.emit("Querying installed and available kernel packages...")
+        running = run_cmd_capture(["uname", "-r"], timeout=10).strip() or "unknown"
+        installed_out = run_cmd_capture(["apt", "list", "--installed"], timeout=30)
+        available_out = run_cmd_capture(["apt", "list"], timeout=30)
+
+        entries: List[KernelInfo] = []
+        seen = set()
+
+        for raw_line in installed_out.splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("Listing..."):
+                continue
+            if "linux-image" in line or "linux-headers" in line or "linux-modules" in line:
+                parts = line.split()
+                if len(parts) >= 1:
+                    pkg = parts[0]
+                    version = parts[1] if len(parts) >= 2 else ""
+                    if pkg not in seen:
+                        entries.append(KernelInfo(package=pkg, version=version, status="installed", source="host"))
+                        seen.add(pkg)
+
+        for raw_line in available_out.splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("Listing..."):
+                continue
+            if "linux-image" in line or "linux-headers" in line or "linux-modules" in line:
+                parts = line.split()
+                if len(parts) >= 1:
+                    pkg = parts[0]
+                    version = parts[1] if len(parts) >= 2 else ""
+                    if pkg not in seen:
+                        entries.append(KernelInfo(package=pkg, version=version, status="available", source="apt"))
+                        seen.add(pkg)
+
+        for item in entries:
+            if item.package.startswith("linux-image") and item.version.startswith(running):
+                item.status = "running"
+
+        self.status.emit(f"Found {len(entries)} kernel entries.")
+        self.results_ready.emit(entries)
 
 
 class FetcherThread(QtCore.QThread):
@@ -243,7 +298,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setWindowIcon(QtGui.QIcon.fromTheme("system-software-update"))
         self.resize(900, 700)
         self._packages: List[PackageInfo] = []
+        self._kernels: List[KernelInfo] = []
         self.fetcher: Optional[FetcherThread] = None
+        self.kernel_fetcher: Optional[KernelThread] = None
         self.upgrader: Optional[UpgradeThread] = None
 
         central = QtWidgets.QWidget()
@@ -251,6 +308,12 @@ class MainWindow(QtWidgets.QMainWindow):
         main_v = QtWidgets.QVBoxLayout(central)
         main_v.setContentsMargins(8, 8, 8, 8)
         main_v.setSpacing(8)
+
+        self.tabs = QtWidgets.QTabWidget()
+        self.overview_page = QtWidgets.QWidget()
+        overview_layout = QtWidgets.QVBoxLayout(self.overview_page)
+        overview_layout.setContentsMargins(0, 0, 0, 0)
+        overview_layout.setSpacing(8)
 
         self.header = QtWidgets.QLabel()
         self.header.setFixedHeight(80)
@@ -261,7 +324,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.header.setFont(font)
         self.header.setText("Checking for updates...")
         self.set_header_state("checking")
-        main_v.addWidget(self.header)
+        overview_layout.addWidget(self.header)
 
         table_frame = QtWidgets.QFrame()
         table_layout = QtWidgets.QVBoxLayout(table_frame)
@@ -292,21 +355,26 @@ class MainWindow(QtWidgets.QMainWindow):
         btn_layout.addWidget(self.update_btn)
         table_layout.addLayout(btn_layout)
 
-        main_v.addWidget(table_frame, stretch=3)
+        overview_layout.addWidget(table_frame, stretch=3)
 
         term_label = QtWidgets.QLabel("Output")
-        main_v.addWidget(term_label)
+        overview_layout.addWidget(term_label)
         self.terminal = QtWidgets.QTextEdit()
         self.terminal.setReadOnly(True)
         mono = QtGui.QFontDatabase.systemFont(QtGui.QFontDatabase.SystemFont.FixedFont)
         self.terminal.setFont(mono)
         self.terminal.setMinimumHeight(220)
-        main_v.addWidget(self.terminal, stretch=2)
+        overview_layout.addWidget(self.terminal, stretch=2)
+
+        self.tabs.addTab(self.overview_page, "Overview")
+        self.tabs.addTab(self._build_kernel_tab(), "Kernel")
+        main_v.addWidget(self.tabs)
 
         self.status_bar = QtWidgets.QStatusBar()
         self.setStatusBar(self.status_bar)
 
         QtCore.QTimer.singleShot(200, self.start_fetch)
+        QtCore.QTimer.singleShot(250, self.start_kernel_fetch)
 
     def set_header_state(self, state: str, updates_count: int = 0):
         if state == "ok":
@@ -319,6 +387,40 @@ class MainWindow(QtWidgets.QMainWindow):
             self.header.setStyleSheet("background-color:#1976d2; color: white; border-radius:6px; padding:12px;")
             self.header.setText("Checking for updates...")
 
+    def _build_kernel_tab(self) -> QtWidgets.QWidget:
+        page = QtWidgets.QWidget()
+        layout = QtWidgets.QVBoxLayout(page)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(8)
+
+        self.kernel_table = QtWidgets.QTableWidget(0, 4)
+        self.kernel_table.setHorizontalHeaderLabels(["Package", "Version", "Status", "Source"])
+        self.kernel_table.verticalHeader().setVisible(False)
+        self.kernel_table.setAlternatingRowColors(True)
+        self.kernel_table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
+        header = self.kernel_table.horizontalHeader()
+        header.setSectionResizeMode(0, QtWidgets.QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(1, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(2, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(3, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
+        layout.addWidget(self.kernel_table)
+
+        btn_layout = QtWidgets.QHBoxLayout()
+        self.kernel_refresh_btn = QtWidgets.QPushButton("Refresh Kernel List")
+        self.kernel_refresh_btn.clicked.connect(self.start_kernel_fetch)
+        self.install_kernel_btn = QtWidgets.QPushButton("Install Recommended Kernel")
+        self.install_kernel_btn.clicked.connect(self.install_recommended_kernel)
+        self.reboot_kernel_btn = QtWidgets.QPushButton("Reboot After Kernel Change")
+        self.reboot_kernel_btn.clicked.connect(self.reboot_for_kernel_change)
+        btn_layout.addWidget(self.kernel_refresh_btn)
+        btn_layout.addWidget(self.install_kernel_btn)
+        btn_layout.addWidget(self.reboot_kernel_btn)
+        layout.addLayout(btn_layout)
+
+        self.kernel_status = QtWidgets.QLabel("Kernel information not yet scanned.")
+        layout.addWidget(self.kernel_status)
+        return page
+
     def start_fetch(self):
         if self.fetcher is not None and self.fetcher.isRunning():
             return
@@ -327,6 +429,59 @@ class MainWindow(QtWidgets.QMainWindow):
         self.fetcher.results_ready.connect(self.on_fetch_results)
         self.fetcher.status.connect(self.on_status)
         self.fetcher.start()
+
+    def start_kernel_fetch(self):
+        if self.kernel_fetcher is not None and self.kernel_fetcher.isRunning():
+            return
+        self.kernel_status.setText("Scanning kernel packages from the active host sources...")
+        self.kernel_fetcher = KernelThread()
+        self.kernel_fetcher.results_ready.connect(self.on_kernel_results)
+        self.kernel_fetcher.status.connect(self.on_status)
+        self.kernel_fetcher.start()
+
+    def on_kernel_results(self, kernels: List[KernelInfo]):
+        self._kernels = kernels
+        self.kernel_table.setRowCount(0)
+        for kernel in kernels:
+            r = self.kernel_table.rowCount()
+            self.kernel_table.insertRow(r)
+            items = [
+                QtWidgets.QTableWidgetItem(kernel.package),
+                QtWidgets.QTableWidgetItem(kernel.version),
+                QtWidgets.QTableWidgetItem(kernel.status),
+                QtWidgets.QTableWidgetItem(kernel.source),
+            ]
+            for col, item in enumerate(items):
+                item.setFlags(item.flags() ^ QtCore.Qt.ItemFlag.ItemIsEditable)
+                self.kernel_table.setItem(r, col, item)
+        self.kernel_status.setText(f"Kernel scan complete: {len(kernels)} entries found.")
+
+    def install_recommended_kernel(self):
+        reply = QtWidgets.QMessageBox.question(
+            self,
+            "Install recommended kernel",
+            "Install the recommended kernel packages from the active host package sources?",
+            QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No,
+        )
+        if reply != QtWidgets.QMessageBox.StandardButton.Yes:
+            return
+        self.terminal.append("[axupdate] Installing recommended kernel packages...")
+        cmd = ["sudo", "apt", "install", "-y", "linux-image-generic", "linux-headers-generic"]
+        completed = subprocess.run(cmd, text=True)
+        self.terminal.append(f"[axupdate] Kernel install finished with exit code {completed.returncode}")
+        self.start_kernel_fetch()
+
+    def reboot_for_kernel_change(self):
+        reply = QtWidgets.QMessageBox.question(
+            self,
+            "Reboot system",
+            "Reboot now so the new kernel can be applied?",
+            QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No,
+        )
+        if reply != QtWidgets.QMessageBox.StandardButton.Yes:
+            return
+        self.terminal.append("[axupdate] Rebooting system to apply kernel changes...")
+        subprocess.run(["systemctl", "reboot"], check=False)
 
     def on_status(self, msg: str):
         self.status_bar.showMessage(msg, 5000)
