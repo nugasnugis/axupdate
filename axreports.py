@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
+import shutil
 import subprocess
 from dataclasses import dataclass, asdict
 from typing import List, Optional
@@ -23,6 +25,8 @@ class PackageInfo:
     size: str
     origin: str
     security_level: int
+    repo_url: str = ""
+    repo_channel: str = ""
 
 
 def run_cmd_capture(cmd: List[str], timeout: Optional[int] = None, suppress_stderr: bool = False) -> str:
@@ -57,6 +61,35 @@ def classify_security_level(pkg_name: str, origin: str) -> int:
     if pn.startswith("linux-") or "kernel" in pn:
         return 5
     return 2
+
+
+def repo_link_for(origin: str, package_name: str) -> tuple[str, str]:
+    o = (origin or "").lower()
+    if "security" in o:
+        return ("https://deb.debian.org/debian-security", "security")
+    if "backports" in o:
+        return ("https://deb.debian.org/debian", "backports")
+    if "proposed" in o or "experimental" in o:
+        return ("https://deb.debian.org/debian", "proposed")
+    if "debian" in o:
+        return ("https://deb.debian.org/debian", "stable")
+    return ("https://packages.debian.org/" + package_name, "unknown")
+
+
+def get_host_os_release() -> str:
+    os_release_path = "/etc/os-release"
+    if not os.path.exists(os_release_path):
+        return "unknown"
+    try:
+        with open(os_release_path, "r", encoding="utf-8") as handle:
+            data = handle.read()
+    except Exception:
+        return "unknown"
+
+    for line in data.splitlines():
+        if line.startswith("PRETTY_NAME="):
+            return line.split("=", 1)[1].strip().strip('"')
+    return "unknown"
 
 
 def query_upgradable_packages() -> List[PackageInfo]:
@@ -120,6 +153,7 @@ def query_upgradable_packages() -> List[PackageInfo]:
         if not origin:
             origin = policy_out.splitlines()[0] if policy_out.splitlines() else ""
 
+        repo_url, repo_channel = repo_link_for(origin, name)
         results.append(
             PackageInfo(
                 name=name,
@@ -128,6 +162,8 @@ def query_upgradable_packages() -> List[PackageInfo]:
                 size=size,
                 origin=origin,
                 security_level=classify_security_level(name, origin),
+                repo_url=repo_url,
+                repo_channel=repo_channel,
             )
         )
 
@@ -154,7 +190,8 @@ def print_report(items: List[PackageInfo]) -> None:
     for item in items:
         print(
             f"- {item.name}: {item.current_version} -> {item.new_version} | "
-            f"size={item.size} | origin={item.origin} | security={human_level(item.security_level)}"
+            f"size={item.size} | origin={item.origin} | channel={item.repo_channel} | "
+            f"repo={item.repo_url} | security={human_level(item.security_level)}"
         )
 
 
@@ -162,15 +199,42 @@ def to_json(items: List[PackageInfo]) -> str:
     return json.dumps([asdict(item) for item in items], indent=2)
 
 
+def apply_updates() -> int:
+    items = query_upgradable_packages()
+    if not items:
+        print("[axreports] system already on the latest available host package sources.")
+        return 0
+
+    apt_cmd = shutil.which("apt") or "/usr/bin/apt"
+    sudo_cmd = shutil.which("sudo")
+    cmd = [apt_cmd, "full-upgrade", "-y"]
+    if sudo_cmd and os.geteuid() != 0:
+        cmd = [sudo_cmd] + cmd
+
+    print(f"[axreports] applying updates from the active host sources: {' '.join(cmd)}")
+    completed = subprocess.run(cmd, text=True)
+    return int(completed.returncode)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Generate an OS update report for Debian-based systems.")
     parser.add_argument("--json", action="store_true", help="Emit report as JSON instead of text output.")
+    parser.add_argument("--apply", action="store_true", help="Apply pending updates from the active host package sources if any are available.")
     args = parser.parse_args()
 
+    host_release = get_host_os_release()
     items = query_upgradable_packages()
+    if args.apply:
+        return apply_updates()
+
     if args.json:
-        print(to_json(items))
+        payload = {
+            "host": host_release,
+            "updates": [asdict(item) for item in items],
+        }
+        print(json.dumps(payload, indent=2))
     else:
+        print(f"[axreports] Host OS: {host_release}")
         print_report(items)
     return 0
 
