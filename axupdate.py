@@ -55,6 +55,17 @@ def run_cmd_capture(cmd: List[str], timeout: Optional[int] = None) -> str:
         return f"ERROR running {' '.join(cmd)}: {e}"
 
 
+def recommended_kernel_packages() -> List[str]:
+    """Return the safest generic kernel packages available from the active host sources."""
+    candidates = ["linux-image-generic", "linux-headers-generic"]
+    existing = []
+    for pkg in candidates:
+        policy = run_cmd_capture(["apt-cache", "policy", pkg], timeout=20)
+        if "Candidate:" in policy and not policy.strip().startswith("ERROR"):
+            existing.append(pkg)
+    return existing or ["linux-image-generic", "linux-headers-generic"]
+
+
 def classify_security_level(pkg_name: str, origin: str, candidate_version: str) -> int:
     pn = pkg_name.lower()
     o = (origin or "").lower()
@@ -460,13 +471,21 @@ class MainWindow(QtWidgets.QMainWindow):
         reply = QtWidgets.QMessageBox.question(
             self,
             "Install recommended kernel",
-            "Install the recommended kernel packages from the active host package sources?",
+            "Install the recommended generic kernel packages from the active host package sources?",
             QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No,
         )
         if reply != QtWidgets.QMessageBox.StandardButton.Yes:
             return
-        self.terminal.append("[axupdate] Installing recommended kernel packages...")
-        cmd = ["sudo", "apt", "install", "-y", "linux-image-generic", "linux-headers-generic"]
+
+        packages = recommended_kernel_packages()
+        self.terminal.append(f"[axupdate] Installing recommended kernel packages: {', '.join(packages)}")
+
+        base_cmd = ["apt", "install", "-y"] + packages
+        if os.geteuid() != 0:
+            cmd = ["sudo", "-S"] + base_cmd
+        else:
+            cmd = base_cmd
+
         completed = subprocess.run(cmd, text=True)
         self.terminal.append(f"[axupdate] Kernel install finished with exit code {completed.returncode}")
         self.start_kernel_fetch()
