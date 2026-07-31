@@ -387,11 +387,13 @@ class MainWindow(QtWidgets.QMainWindow):
         if HAVE_PLYER:
             try:
                 plyer_notify.notify(title=title, message=body, app_name="axupdate")
+                return
             except Exception:
-                subprocess.run(["notify-send", title, body])
-        else:
+                pass
+
+        if shutil.which("notify-send"):
             try:
-                subprocess.run(["notify-send", title, body])
+                subprocess.run(["notify-send", title, body], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             except Exception:
                 pass
 
@@ -435,10 +437,11 @@ class MainWindow(QtWidgets.QMainWindow):
             self.set_header_state("ok")
         else:
             self.set_header_state("updates", updates_count=len(self._packages))
-        try:
-            subprocess.run(["notify-send", "axupdate", "Upgrade finished"])
-        except Exception:
-            pass
+        if shutil.which("notify-send"):
+            try:
+                subprocess.run(["notify-send", "axupdate", "Upgrade finished"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except Exception:
+                pass
 
 
 def main():
