@@ -23,10 +23,10 @@ jobs:
       - name: Install packages
         run: |
           sudo apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y python3-pyqt6 python3-pyqt6.qtwebengine python3-pip xvfb x11-utils x11-xserver-utils dbus-x11 novnc websockify
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y python3-pyqt6 python3-pyqt6.qtwebengine python3-pip xvfb x11-utils x11-xserver-utils dbus-x11 novnc websockify x11vnc
           python -m pip install --upgrade pip
           pip install -r requirements.txt
       - name: Run reusable VNC/Pinggy launcher
         run: |
           chmod +x run_vnc.sh
-          ./run_vnc.sh
+          DISPLAY_NUM=:99 VNC_PORT=5900 NOVNC_WEB_PORT=6080 APP_CMD="python3 axupdate.py" ./run_vnc.sh
