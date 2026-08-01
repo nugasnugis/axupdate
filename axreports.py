@@ -16,6 +16,8 @@ import subprocess
 from dataclasses import dataclass, asdict
 from typing import Any, Dict, List, Optional
 
+APP_VERSION = "1.0.0"
+
 
 @dataclass
 class PackageInfo:
@@ -252,25 +254,50 @@ def apply_updates(config_path: str = "repo_sources.json") -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Generate an OS update report for Debian-based systems.")
+    parser.add_argument("--version", action="store_true", help="Print the axreports application version and exit.")
     parser.add_argument("--json", action="store_true", help="Emit report as JSON instead of text output.")
     parser.add_argument("--apply", action="store_true", help="Apply pending updates from the active host package sources if any are available.")
     parser.add_argument("--repo-config", default="repo_sources.json", help="Path to the repo-source metadata file used for report links and channel mapping.")
+    parser.add_argument("--output", help="Optional output file path for exported JSON or text report content.")
     args = parser.parse_args()
+
+    if args.version:
+        print(f"axreports {APP_VERSION}")
+        return 0
 
     host_release = get_host_os_release()
     items = query_upgradable_packages(config_path=args.repo_config)
     if args.apply:
         return apply_updates(config_path=args.repo_config)
 
+    payload = {
+        "host": host_release,
+        "updates": [asdict(item) for item in items],
+    }
+
     if args.json:
-        payload = {
-            "host": host_release,
-            "updates": [asdict(item) for item in items],
-        }
-        print(json.dumps(payload, indent=2))
+        report_text = json.dumps(payload, indent=2)
     else:
-        print(f"[axreports] Host OS: {host_release}")
-        print_report(items)
+        report_text = f"[axreports] Host OS: {host_release}\n"
+        report_text += "\n=== axreports update report ===\n"
+        if not items:
+            report_text += "No pending operating system updates found.\n"
+        else:
+            report_text += f"Updates found: {len(items)}\n"
+            for item in items:
+                report_text += (
+                    f"- {item.name}: {item.current_version} -> {item.new_version} | "
+                    f"size={item.size} | origin={item.origin} | channel={item.repo_channel} | "
+                    f"repo={item.repo_url} | security={human_level(item.security_level)}\n"
+                )
+
+    if args.output:
+        with open(args.output, "w", encoding="utf-8") as handle:
+            handle.write(report_text)
+        print(f"[axreports] report written to {args.output}")
+        return 0
+
+    print(report_text)
     return 0
 
 
