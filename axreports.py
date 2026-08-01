@@ -14,8 +14,17 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass, asdict
 from typing import Any, Dict, List, Optional
+
+try:
+    from PyQt6 import QtCore, QtWidgets
+    HAVE_QT = True
+except Exception:
+    QtCore = None
+    QtWidgets = None
+    HAVE_QT = False
 
 APP_VERSION = "1.0.0"
 
@@ -380,6 +389,83 @@ def apply_updates(config_path: str = "repo_sources.json") -> int:
     return int(completed.returncode)
 
 
+class AxReportsWindow(QtWidgets.QMainWindow):
+    def __init__(self, repo_config: str = "repo_sources.json"):
+        super().__init__()
+        self.repo_config = repo_config
+        self.setWindowTitle("axreports")
+        self.resize(860, 600)
+
+        self.text_area = QtWidgets.QPlainTextEdit()
+        self.text_area.setReadOnly(True)
+        self.text_area.setFont(QtWidgets.QApplication.font())
+
+        self.refresh_btn = QtWidgets.QPushButton("Refresh Report")
+        self.refresh_btn.clicked.connect(self.refresh_report)
+
+        self.apply_btn = QtWidgets.QPushButton("Apply Package Updates")
+        self.apply_btn.clicked.connect(self.apply_updates_gui)
+
+        self.release_check_btn = QtWidgets.QPushButton("Release Check")
+        self.release_check_btn.clicked.connect(self.release_check_gui)
+
+        self.release_upgrade_btn = QtWidgets.QPushButton("Release Upgrade")
+        self.release_upgrade_btn.clicked.connect(self.release_upgrade_gui)
+
+        self.export_btn = QtWidgets.QPushButton("Export JSON")
+        self.export_btn.clicked.connect(self.export_json)
+
+        btn_row = QtWidgets.QHBoxLayout()
+        btn_row.addWidget(self.refresh_btn)
+        btn_row.addWidget(self.apply_btn)
+        btn_row.addWidget(self.release_check_btn)
+        btn_row.addWidget(self.release_upgrade_btn)
+        btn_row.addWidget(self.export_btn)
+
+        container = QtWidgets.QWidget()
+        layout = QtWidgets.QVBoxLayout(container)
+        layout.addLayout(btn_row)
+        layout.addWidget(self.text_area)
+        self.setCentralWidget(container)
+
+        self.refresh_report()
+
+    def _payload(self) -> Dict[str, Any]:
+        host_release = get_host_os_release()
+        items = query_upgradable_packages(config_path=self.repo_config)
+        return {
+            "host": host_release,
+            "updates": [asdict(item) for item in items],
+            "release_upgrade": detect_release_upgrade_status(config_path=self.repo_config),
+        }
+
+    def refresh_report(self) -> None:
+        payload = self._payload()
+        self.text_area.setPlainText(json.dumps(payload, indent=2))
+
+    def apply_updates_gui(self) -> None:
+        rc = apply_updates(config_path=self.repo_config)
+        self.text_area.setPlainText(f"[axreports] apply_updates returned exit code {rc}\n")
+        self.refresh_report()
+
+    def release_check_gui(self) -> None:
+        payload = detect_release_upgrade_status(config_path=self.repo_config)
+        self.text_area.setPlainText(json.dumps(payload, indent=2))
+
+    def release_upgrade_gui(self) -> None:
+        rc = apply_release_upgrade(config_path=self.repo_config)
+        self.text_area.setPlainText(f"[axreports] release-upgrade path returned exit code {rc}\n")
+        self.refresh_report()
+
+    def export_json(self) -> None:
+        payload = self._payload()
+        output_path, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Export JSON", "axreports-export.json", "JSON Files (*.json)")
+        if output_path:
+            with open(output_path, "w", encoding="utf-8") as handle:
+                handle.write(json.dumps(payload, indent=2))
+            self.text_area.setPlainText(f"[axreports] exported JSON to {output_path}\n")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Generate an OS update report for Debian-based systems.")
     parser.add_argument("--version", action="store_true", help="Print the axreports application version and exit.")
@@ -387,6 +473,7 @@ def main() -> int:
     parser.add_argument("--apply", action="store_true", help="Apply pending updates from the active host package sources if any are available.")
     parser.add_argument("--release-upgrade", action="store_true", help="Check and apply a Debian release-upgrade path using the host's configured apt/release toolchain.")
     parser.add_argument("--release-check", action="store_true", help="Print the Debian release-upgrade readiness status without mutating system package state.")
+    parser.add_argument("--gui", action="store_true", help="Launch a graphical Mintreport-style window for the host report and release checks.")
     parser.add_argument("--repo-config", default="repo_sources.json", help="Path to the repo-source metadata file used for report links and channel mapping.")
     parser.add_argument("--output", help="Optional output file path for exported JSON or text report content.")
     args = parser.parse_args()
@@ -394,6 +481,15 @@ def main() -> int:
     if args.version:
         print(f"axreports {APP_VERSION}")
         return 0
+
+    if args.gui:
+        if not HAVE_QT:
+            print("[axreports] GUI mode requires PyQt6 to be installed.")
+            return 1
+        app = QtWidgets.QApplication(sys.argv)
+        window = AxReportsWindow(repo_config=args.repo_config)
+        window.show()
+        return app.exec()
 
     if args.release_check:
         report_text = json.dumps(detect_release_upgrade_status(config_path=args.repo_config), indent=2)
