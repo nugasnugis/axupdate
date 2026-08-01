@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "defaults": {
+    "repo_url": "https://deb.debian.org/debian",
+    "channel": "stable"
+  },
+  "rules": [
+    {
+      "match": "security",
+      "repo_url": "https://deb.debian.org/debian-security",
+      "channel": "security"
+    },
+    {
+      "match": "backports",
+      "repo_url": "https://deb.debian.org/debian",
+      "channel": "backports"
+    },
+    {
+      "match": "proposed",
+      "repo_url": "https://deb.debian.org/debian",
+      "channel": "proposed"
+    },
+    {
+      "match": "experimental",
+      "repo_url": "https://deb.debian.org/debian",
+      "channel": "experimental"
+    },
+    {
+      "match": "debian",
+      "repo_url": "https://deb.debian.org/debian",
+      "channel": "stable"
+    },
+    {
+      "match": "ubuntu",
+      "repo_url": "https://archive.ubuntu.com/ubuntu",
+      "channel": "ubuntu"
+    }
+  ],
+  "release_channels": {
+    "kernel": {
+      "repo_url": "https://deb.debian.org/debian",
+      "channel": "stable"
+    },
+    "applications": {
+      "repo_url": "https://deb.debian.org/debian",
+      "channel": "stable"
+    },
+    "os_upgrades": {
+      "repo_url": "https://deb.debian.org/debian",
+      "channel": "stable"
+    }
+  }
+}

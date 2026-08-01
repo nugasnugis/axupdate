@@ -14,7 +14,7 @@ import re
 import shutil
 import subprocess
 from dataclasses import dataclass, asdict
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 
 @dataclass
@@ -63,16 +63,50 @@ def classify_security_level(pkg_name: str, origin: str) -> int:
     return 2
 
 
-def repo_link_for(origin: str, package_name: str) -> tuple[str, str]:
+def load_repo_source_map(config_path: str = "repo_sources.json") -> Dict[str, Any]:
+    default_map = {
+        "version": 1,
+        "defaults": {"repo_url": "https://deb.debian.org/debian", "channel": "stable"},
+        "rules": [
+            {"match": "security", "repo_url": "https://deb.debian.org/debian-security", "channel": "security"},
+            {"match": "backports", "repo_url": "https://deb.debian.org/debian", "channel": "backports"},
+            {"match": "proposed", "repo_url": "https://deb.debian.org/debian", "channel": "proposed"},
+            {"match": "experimental", "repo_url": "https://deb.debian.org/debian", "channel": "experimental"},
+            {"match": "debian", "repo_url": "https://deb.debian.org/debian", "channel": "stable"},
+            {"match": "ubuntu", "repo_url": "https://archive.ubuntu.com/ubuntu", "channel": "ubuntu"},
+        ],
+        "release_channels": {
+            "kernel": {"repo_url": "https://deb.debian.org/debian", "channel": "stable"},
+            "applications": {"repo_url": "https://deb.debian.org/debian", "channel": "stable"},
+            "os_upgrades": {"repo_url": "https://deb.debian.org/debian", "channel": "stable"},
+        },
+    }
+
+    try:
+        with open(config_path, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        if isinstance(data, dict):
+            return data
+    except Exception:
+        pass
+    return default_map
+
+
+def repo_link_for(origin: str, package_name: str, config_path: str = "repo_sources.json") -> tuple[str, str]:
+    origin_map = load_repo_source_map(config_path)
+    defaults = origin_map.get("defaults", {})
+    rules = origin_map.get("rules", [])
     o = (origin or "").lower()
-    if "security" in o:
-        return ("https://deb.debian.org/debian-security", "security")
-    if "backports" in o:
-        return ("https://deb.debian.org/debian", "backports")
-    if "proposed" in o or "experimental" in o:
-        return ("https://deb.debian.org/debian", "proposed")
+
+    for rule in rules:
+        match = (rule.get("match") or "").lower()
+        if match and match in o:
+            return (rule.get("repo_url") or defaults.get("repo_url") or "https://deb.debian.org/debian", rule.get("channel") or defaults.get("channel") or "stable")
+
     if "debian" in o:
-        return ("https://deb.debian.org/debian", "stable")
+        return (defaults.get("repo_url") or "https://deb.debian.org/debian", defaults.get("channel") or "stable")
+    if "ubuntu" in o:
+        return ("https://archive.ubuntu.com/ubuntu", "ubuntu")
     return ("https://packages.debian.org/" + package_name, "unknown")
 
 
@@ -92,7 +126,7 @@ def get_host_os_release() -> str:
     return "unknown"
 
 
-def query_upgradable_packages() -> List[PackageInfo]:
+def query_upgradable_packages(config_path: str = "repo_sources.json") -> List[PackageInfo]:
     print("[axreports] running apt update...")
     _ = run_cmd_capture(["apt", "update"], timeout=90, suppress_stderr=True)
 
@@ -153,7 +187,7 @@ def query_upgradable_packages() -> List[PackageInfo]:
         if not origin:
             origin = policy_out.splitlines()[0] if policy_out.splitlines() else ""
 
-        repo_url, repo_channel = repo_link_for(origin, name)
+        repo_url, repo_channel = repo_link_for(origin, name, config_path=config_path)
         results.append(
             PackageInfo(
                 name=name,
@@ -199,8 +233,8 @@ def to_json(items: List[PackageInfo]) -> str:
     return json.dumps([asdict(item) for item in items], indent=2)
 
 
-def apply_updates() -> int:
-    items = query_upgradable_packages()
+def apply_updates(config_path: str = "repo_sources.json") -> int:
+    items = query_upgradable_packages(config_path=config_path)
     if not items:
         print("[axreports] system already on the latest available host package sources.")
         return 0
@@ -220,12 +254,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Generate an OS update report for Debian-based systems.")
     parser.add_argument("--json", action="store_true", help="Emit report as JSON instead of text output.")
     parser.add_argument("--apply", action="store_true", help="Apply pending updates from the active host package sources if any are available.")
+    parser.add_argument("--repo-config", default="repo_sources.json", help="Path to the repo-source metadata file used for report links and channel mapping.")
     args = parser.parse_args()
 
     host_release = get_host_os_release()
-    items = query_upgradable_packages()
+    items = query_upgradable_packages(config_path=args.repo_config)
     if args.apply:
-        return apply_updates()
+        return apply_updates(config_path=args.repo_config)
 
     if args.json:
         payload = {
