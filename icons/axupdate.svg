@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="axupdate icon">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#1d4ed8"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f59e0b"/>
+      <stop offset="100%" stop-color="#fb7185"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="44" fill="url(#bg)"/>
+  <circle cx="128" cy="128" r="78" fill="#0b1220" opacity="0.42"/>
+  <path d="M72 175 L102 76 H124 L154 175 H134 L129 157 H97 L92 175 Z M107 138 H119 L113 116 Z" fill="#e2e8f0"/>
+  <path d="M154 76 L182 116 L154 175 H173 L204 116 L173 76 Z" fill="url(#accent)" opacity="0.95"/>
+  <path d="M54 54 L88 54 L128 112 L168 54 L202 54 L145 128 L145 164 L111 164 L111 128 Z" fill="#f8fafc" opacity="0.18"/>
+  <text x="128" y="225" text-anchor="middle" font-family="DejaVu Sans, Arial, sans-serif" font-size="24" font-weight="700" fill="#f8fafc">AXUPDATE</text>
+</svg>
