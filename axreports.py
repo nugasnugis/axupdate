@@ -180,11 +180,27 @@ def detect_release_upgrade_status(config_path: str = "repo_sources.json") -> Dic
     repo_map = load_repo_source_map(config_path)
     release_targets = repo_map.get("release_targets", {})
     current_codename = (metadata.get("VERSION_CODENAME") or "").lower()
-    target_info = release_targets.get(current_codename)
-    target_release = (target_info or {}).get("next") if isinstance(target_info, dict) else None
     source_text = read_host_apt_sources().lower()
 
-    supported = bool(target_release)
+    target_release = None
+    target_channel = "stable"
+    do_release = shutil.which("do-release-upgrade")
+    if do_release:
+        detect_cmd = [do_release, "-s"]
+        sim_output = run_cmd_capture(detect_cmd, timeout=60, suppress_stderr=True)
+        match = re.search(r"New release '[^']+' available", sim_output, flags=re.IGNORECASE)
+        if match:
+            target_release = re.search(r"'([^']+)'", match.group(0))
+            if target_release:
+                target_release = target_release.group(1)
+        if target_release:
+            target_channel = "detected"
+
+    fallback_target_info = release_targets.get(current_codename)
+    if not target_release and isinstance(fallback_target_info, dict):
+        target_release = (fallback_target_info or {}).get("next")
+        target_channel = (fallback_target_info or {}).get("channel", "stable")
+
     current_supported = current_codename in source_text
     target_support = bool(target_release and target_release in source_text)
     source_support = current_supported or target_support
@@ -195,11 +211,12 @@ def detect_release_upgrade_status(config_path: str = "repo_sources.json") -> Dic
         "version_id": metadata.get("VERSION_ID", "unknown"),
         "codename": current_codename,
         "target_release": target_release,
-        "target_channel": (target_info or {}).get("channel", "stable") if isinstance(target_info, dict) else "stable",
+        "target_channel": target_channel,
         "host_sources_support_current": current_supported,
         "host_sources_support_target": target_support,
-        "ready_for_release_upgrade": bool(supported and source_support),
+        "ready_for_release_upgrade": bool(target_release and source_support),
         "source_of_truth": "/etc/apt/sources.list and /etc/apt/sources.list.d/*.list/*.sources",
+        "detection_mode": "host-tool" if do_release else "fallback-map",
     }
 
 
