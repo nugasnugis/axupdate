@@ -8,6 +8,7 @@ severity similar to a Mintreport-style summary.
 from __future__ import annotations
 
 import argparse
+import glob
 import json
 import os
 import re
@@ -82,6 +83,11 @@ def load_repo_source_map(config_path: str = "repo_sources.json") -> Dict[str, An
             "applications": {"repo_url": "https://deb.debian.org/debian", "channel": "stable"},
             "os_upgrades": {"repo_url": "https://deb.debian.org/debian", "channel": "stable"},
         },
+        "release_targets": {
+            "bookworm": {"next": "trixie", "channel": "stable"},
+            "trixie": {"next": "forky", "channel": "testing"},
+            "forky": {"next": "duke", "channel": "testing"},
+        },
     }
 
     try:
@@ -126,6 +132,111 @@ def get_host_os_release() -> str:
         if line.startswith("PRETTY_NAME="):
             return line.split("=", 1)[1].strip().strip('"')
     return "unknown"
+
+
+def get_host_release_metadata() -> Dict[str, str]:
+    os_release_path = "/etc/os-release"
+    values: Dict[str, str] = {
+        "PRETTY_NAME": "unknown",
+        "VERSION_ID": "unknown",
+        "VERSION_CODENAME": "unknown",
+        "ID": "unknown",
+    }
+    if not os.path.exists(os_release_path):
+        return values
+
+    try:
+        with open(os_release_path, "r", encoding="utf-8") as handle:
+            data = handle.read()
+    except Exception:
+        return values
+
+    for line in data.splitlines():
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        if key in values:
+            values[key] = value.strip().strip('"')
+    return values
+
+
+def read_host_apt_sources() -> str:
+    source_parts: List[str] = []
+    source_paths = ["/etc/apt/sources.list"]
+    source_paths.extend(sorted(glob.glob("/etc/apt/sources.list.d/*")))
+    for path in source_paths:
+        if not os.path.exists(path):
+            continue
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                source_parts.append(handle.read())
+        except Exception:
+            continue
+    return "\n".join(source_parts)
+
+
+def detect_release_upgrade_status(config_path: str = "repo_sources.json") -> Dict[str, Any]:
+    metadata = get_host_release_metadata()
+    repo_map = load_repo_source_map(config_path)
+    release_targets = repo_map.get("release_targets", {})
+    current_codename = (metadata.get("VERSION_CODENAME") or "").lower()
+    target_info = release_targets.get(current_codename)
+    target_release = (target_info or {}).get("next") if isinstance(target_info, dict) else None
+    source_text = read_host_apt_sources().lower()
+
+    supported = bool(target_release)
+    current_supported = current_codename in source_text
+    target_support = bool(target_release and target_release in source_text)
+    source_support = current_supported or target_support
+
+    return {
+        "host": get_host_os_release(),
+        "id": metadata.get("ID", "unknown"),
+        "version_id": metadata.get("VERSION_ID", "unknown"),
+        "codename": current_codename,
+        "target_release": target_release,
+        "target_channel": (target_info or {}).get("channel", "stable") if isinstance(target_info, dict) else "stable",
+        "host_sources_support_current": current_supported,
+        "host_sources_support_target": target_support,
+        "ready_for_release_upgrade": bool(supported and source_support),
+        "source_of_truth": "/etc/apt/sources.list and /etc/apt/sources.list.d/*.list/*.sources",
+    }
+
+
+def apply_release_upgrade(config_path: str = "repo_sources.json") -> int:
+    status = detect_release_upgrade_status(config_path=config_path)
+    target_release = status.get("target_release")
+    if not target_release:
+        print("[axreports] no Debian release upgrade target is defined for the current host code name.")
+        return 1
+
+    if not status.get("ready_for_release_upgrade"):
+        print(
+            "[axreports] host sources are not prepared for a release upgrade target; "
+            "set the active Debian apt source definitions on the host in /etc/apt first."
+        )
+        return 2
+
+    do_release = shutil.which("do-release-upgrade")
+    apt_cmd = shutil.which("apt") or "/usr/bin/apt"
+    sudo_cmd = shutil.which("sudo")
+
+    if do_release:
+        cmd = [do_release, "-f", "DistUpgradeViewNonInteractive"]
+        if sudo_cmd and os.geteuid() != 0:
+            cmd = [sudo_cmd] + cmd
+        print(f"[axreports] running Debian release-upgrade toolchain: {' '.join(cmd)}")
+        completed = subprocess.run(cmd, text=True)
+        return int(completed.returncode)
+
+    # Fall back to the host's supported apt based upgrade path when no dedicated
+    # release-upgrade tool is present on the machine.
+    cmd = [apt_cmd, "full-upgrade", "-y"]
+    if sudo_cmd and os.geteuid() != 0:
+        cmd = [sudo_cmd] + cmd
+    print(f"[axreports] running host apt upgrade path for release-check preparation: {' '.join(cmd)}")
+    completed = subprocess.run(cmd, text=True)
+    return int(completed.returncode)
 
 
 def query_upgradable_packages(config_path: str = "repo_sources.json") -> List[PackageInfo]:
@@ -257,6 +368,8 @@ def main() -> int:
     parser.add_argument("--version", action="store_true", help="Print the axreports application version and exit.")
     parser.add_argument("--json", action="store_true", help="Emit report as JSON instead of text output.")
     parser.add_argument("--apply", action="store_true", help="Apply pending updates from the active host package sources if any are available.")
+    parser.add_argument("--release-upgrade", action="store_true", help="Check and apply a Debian release-upgrade path using the host's configured apt/release toolchain.")
+    parser.add_argument("--release-check", action="store_true", help="Print the Debian release-upgrade readiness status without mutating system package state.")
     parser.add_argument("--repo-config", default="repo_sources.json", help="Path to the repo-source metadata file used for report links and channel mapping.")
     parser.add_argument("--output", help="Optional output file path for exported JSON or text report content.")
     args = parser.parse_args()
@@ -264,6 +377,19 @@ def main() -> int:
     if args.version:
         print(f"axreports {APP_VERSION}")
         return 0
+
+    if args.release_check:
+        report_text = json.dumps(detect_release_upgrade_status(config_path=args.repo_config), indent=2)
+        if args.output:
+            with open(args.output, "w", encoding="utf-8") as handle:
+                handle.write(report_text)
+            print(f"[axreports] release status written to {args.output}")
+            return 0
+        print(report_text)
+        return 0
+
+    if args.release_upgrade:
+        return apply_release_upgrade(config_path=args.repo_config)
 
     host_release = get_host_os_release()
     items = query_upgradable_packages(config_path=args.repo_config)
@@ -273,6 +399,7 @@ def main() -> int:
     payload = {
         "host": host_release,
         "updates": [asdict(item) for item in items],
+        "release_upgrade": detect_release_upgrade_status(config_path=args.repo_config),
     }
 
     if args.json:

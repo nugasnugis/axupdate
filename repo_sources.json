@@ -49,5 +49,19 @@
       "repo_url": "https://deb.debian.org/debian",
       "channel": "stable"
     }
+  },
+  "release_targets": {
+    "bookworm": {
+      "next": "trixie",
+      "channel": "stable"
+    },
+    "trixie": {
+      "next": "forky",
+      "channel": "testing"
+    },
+    "forky": {
+      "next": "duke",
+      "channel": "testing"
+    }
   }
 }
