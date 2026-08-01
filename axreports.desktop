@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=axreports
+Comment=Host-aware Debian update report and release checker for axupdate
+Exec=python3 /usr/local/bin/axreports.py --gui
+Icon=system-software-update
+Terminal=false
+Type=Application
+Categories=System;Settings;
+StartupWMClass=axreports
