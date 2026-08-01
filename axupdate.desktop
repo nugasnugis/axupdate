@@ -1,7 +1,8 @@
 [Desktop Entry]
 Name=axupdate
 Comment=OS Update Manager for axpm
-Exec=pkexec python3 /usr/local/bin/axupdate.py
+Exec=pkexec /usr/local/bin/axupdate.py
+TryExec=/usr/local/bin/axupdate.py
 Icon=system-software-update
 Terminal=false
 Type=Application

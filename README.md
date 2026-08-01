@@ -4,19 +4,24 @@ axupdate is a Linux GUI update manager for Debian Testing running KDE Plasma (Wa
 
 ## Files
 - `axupdate.py` - main GUI application
+- `axreports.py` - report engine plus GUI wrapper
 - `axupdate.desktop` - XDG desktop launcher
+- `axreports.desktop` - XDG desktop launcher for the report GUI
 - `requirements.txt` - Python dependencies
 
 ## Install
 ```bash
 sudo install -m755 axupdate.py /usr/local/bin/axupdate.py
+sudo install -m755 axreports.py /usr/local/bin/axreports.py
 sudo install -m644 axupdate.desktop /usr/share/applications/axupdate.desktop
+sudo install -m644 axreports.desktop /usr/share/applications/axreports.desktop
 pip install -r requirements.txt
 ```
 
 ## Run
 ```bash
 python3 axupdate.py
+python3 axreports.py --gui
 ```
 
 ## GitHub Actions Simulation

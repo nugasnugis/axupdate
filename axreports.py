@@ -394,11 +394,32 @@ class AxReportsWindow(QtWidgets.QMainWindow):
         super().__init__()
         self.repo_config = repo_config
         self.setWindowTitle("axreports")
-        self.resize(860, 600)
+        self.resize(980, 720)
+
+        self.status_label = QtWidgets.QLabel("Scanning host report…")
+        self.status_label.setStyleSheet("QLabel { font-weight: bold; }")
+
+        self.summary_label = QtWidgets.QLabel()
+        self.summary_label.setWordWrap(True)
+
+        self.host_label = QtWidgets.QLabel()
+        self.host_label.setWordWrap(True)
+
+        self.update_count_label = QtWidgets.QLabel()
+        self.release_status_label = QtWidgets.QLabel()
+        self.detection_mode_label = QtWidgets.QLabel()
 
         self.text_area = QtWidgets.QPlainTextEdit()
         self.text_area.setReadOnly(True)
         self.text_area.setFont(QtWidgets.QApplication.font())
+
+        self.release_text = QtWidgets.QPlainTextEdit()
+        self.release_text.setReadOnly(True)
+        self.release_text.setFont(QtWidgets.QApplication.font())
+
+        self.updates_text = QtWidgets.QPlainTextEdit()
+        self.updates_text.setReadOnly(True)
+        self.updates_text.setFont(QtWidgets.QApplication.font())
 
         self.refresh_btn = QtWidgets.QPushButton("Refresh Report")
         self.refresh_btn.clicked.connect(self.refresh_report)
@@ -422,10 +443,37 @@ class AxReportsWindow(QtWidgets.QMainWindow):
         btn_row.addWidget(self.release_upgrade_btn)
         btn_row.addWidget(self.export_btn)
 
+        summary_frame = QtWidgets.QFrame()
+        summary_layout = QtWidgets.QVBoxLayout(summary_frame)
+        summary_layout.addWidget(self.status_label)
+        summary_layout.addWidget(self.summary_label)
+        summary_layout.addWidget(self.host_label)
+        summary_layout.addWidget(self.update_count_label)
+        summary_layout.addWidget(self.release_status_label)
+        summary_layout.addWidget(self.detection_mode_label)
+
+        overview_page = QtWidgets.QWidget()
+        overview_layout = QtWidgets.QVBoxLayout(overview_page)
+        overview_layout.addWidget(summary_frame)
+        overview_layout.addWidget(self.text_area)
+
+        release_page = QtWidgets.QWidget()
+        release_layout = QtWidgets.QVBoxLayout(release_page)
+        release_layout.addWidget(self.release_text)
+
+        updates_page = QtWidgets.QWidget()
+        updates_layout = QtWidgets.QVBoxLayout(updates_page)
+        updates_layout.addWidget(self.updates_text)
+
+        self.tabs = QtWidgets.QTabWidget()
+        self.tabs.addTab(overview_page, "Overview")
+        self.tabs.addTab(release_page, "Release Status")
+        self.tabs.addTab(updates_page, "Updates")
+
         container = QtWidgets.QWidget()
         layout = QtWidgets.QVBoxLayout(container)
         layout.addLayout(btn_row)
-        layout.addWidget(self.text_area)
+        layout.addWidget(self.tabs)
         self.setCentralWidget(container)
 
         self.refresh_report()
@@ -439,22 +487,65 @@ class AxReportsWindow(QtWidgets.QMainWindow):
             "release_upgrade": detect_release_upgrade_status(config_path=self.repo_config),
         }
 
+    def _render_summary(self, payload: Dict[str, Any]) -> None:
+        update_items = payload.get("updates") or []
+        release_info = payload.get("release_upgrade") or {}
+        count = len(update_items)
+        ready = bool(release_info.get("ready_for_release_upgrade"))
+
+        self.summary_label.setText(
+            f"Host report summary: {count} pending update(s) from the active sources."
+        )
+        self.host_label.setText(f"Host OS: {payload.get('host', 'unknown')}")
+        self.update_count_label.setText(f"Updates found: {count}")
+        self.release_status_label.setText(
+            f"Release upgrade ready: {'yes' if ready else 'no'} | target: {release_info.get('target_release') or 'none'}"
+        )
+        self.detection_mode_label.setText(
+            f"Detection mode: {release_info.get('detection_mode', 'unknown')}"
+        )
+        self.status_label.setText("axreports host report ready")
+
+    def _render_updates_text(self, payload: Dict[str, Any]) -> None:
+        update_items = payload.get("updates") or []
+        if not update_items:
+            self.updates_text.setPlainText("No pending operating system updates found.")
+            return
+
+        lines = ["Pending updates:"]
+        for item in update_items:
+            lines.append(
+                f"- {item['name']}: {item['current_version']} -> {item['new_version']} | "
+                f"size={item['size']} | channel={item['repo_channel']} | repo={item['repo_url']}"
+            )
+        self.updates_text.setPlainText("\n".join(lines))
+
     def refresh_report(self) -> None:
         payload = self._payload()
+        self._render_summary(payload)
         self.text_area.setPlainText(json.dumps(payload, indent=2))
+        self.release_text.setPlainText(json.dumps(payload.get("release_upgrade", {}), indent=2))
+        self._render_updates_text(payload)
 
     def apply_updates_gui(self) -> None:
         rc = apply_updates(config_path=self.repo_config)
-        self.text_area.setPlainText(f"[axreports] apply_updates returned exit code {rc}\n")
+        self.status_label.setText(f"Package apply returned exit code {rc}")
         self.refresh_report()
 
     def release_check_gui(self) -> None:
         payload = detect_release_upgrade_status(config_path=self.repo_config)
+        self._render_summary({
+            "host": get_host_os_release(),
+            "updates": [],
+            "release_upgrade": payload,
+        })
         self.text_area.setPlainText(json.dumps(payload, indent=2))
+        self.release_text.setPlainText(json.dumps(payload, indent=2))
+        self.updates_text.setPlainText("Release check completed.")
 
     def release_upgrade_gui(self) -> None:
         rc = apply_release_upgrade(config_path=self.repo_config)
-        self.text_area.setPlainText(f"[axreports] release-upgrade path returned exit code {rc}\n")
+        self.status_label.setText(f"Release-upgrade path returned exit code {rc}")
         self.refresh_report()
 
     def export_json(self) -> None:
@@ -463,7 +554,7 @@ class AxReportsWindow(QtWidgets.QMainWindow):
         if output_path:
             with open(output_path, "w", encoding="utf-8") as handle:
                 handle.write(json.dumps(payload, indent=2))
-            self.text_area.setPlainText(f"[axreports] exported JSON to {output_path}\n")
+            self.status_label.setText(f"JSON exported to {output_path}")
 
 
 def main() -> int:
