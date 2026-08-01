@@ -13,8 +13,8 @@ axupdate is a Linux GUI update manager for Debian Testing running KDE Plasma (Wa
 ```bash
 sudo install -m755 axupdate.py /usr/local/bin/axupdate.py
 sudo install -m755 axreports.py /usr/local/bin/axreports.py
-sudo install -m644 icons/axupdate.svg /usr/share/pixmaps/axupdate.svg
-sudo install -m644 icons/axreports.svg /usr/share/pixmaps/axreports.svg
+sudo install -m644 icons/axupdate-brand.svg /usr/share/pixmaps/axupdate-brand.svg
+sudo install -m644 icons/axreports-brand.svg /usr/share/pixmaps/axreports-brand.svg
 sudo install -m644 axupdate.desktop /usr/share/applications/axupdate.desktop
 sudo install -m644 axreports.desktop /usr/share/applications/axreports.desktop
 pip install -r requirements.txt

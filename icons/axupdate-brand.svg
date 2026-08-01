@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="axupdate branded icon">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#1d4ed8"/>
+    </linearGradient>
+    <linearGradient id="glow" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f59e0b"/>
+      <stop offset="100%" stop-color="#fb7185"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="40" fill="url(#bg)"/>
+  <rect x="44" y="44" width="168" height="168" rx="28" fill="#07111d" opacity="0.45"/>
+  <circle cx="128" cy="128" r="56" fill="none" stroke="url(#glow)" stroke-width="16" stroke-linecap="round" stroke-dasharray="220 110" transform="rotate(-28 128 128)"/>
+  <path d="M94 86 L74 106 L94 126" fill="none" stroke="#f8fafc" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M162 150 L182 130 L162 110" fill="none" stroke="#f8fafc" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M74 106 H182" fill="none" stroke="#f8fafc" stroke-width="13" stroke-linecap="round"/>
+  <path d="M92 168 H120" fill="none" stroke="#f8fafc" stroke-width="10" stroke-linecap="round" opacity="0.85"/>
+  <path d="M158 62 H176" fill="none" stroke="#f8fafc" stroke-width="10" stroke-linecap="round" opacity="0.85"/>
+  <path d="M62 148 H80" fill="none" stroke="#f8fafc" stroke-width="10" stroke-linecap="round" opacity="0.85"/>
+  <text x="128" y="226" text-anchor="middle" font-family="DejaVu Sans, Arial, sans-serif" font-size="22" font-weight="700" fill="#f8fafc">AXUPDATE</text>
+</svg>
